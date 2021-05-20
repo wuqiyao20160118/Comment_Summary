@@ -6,6 +6,7 @@ from keras.backend import set_session, get_session
 import final_summary
 from bert4keras.tokenizers import Tokenizer
 from bert4keras.snippets import AutoRegressiveDecoder
+from bert4keras.snippets import text_segmentate
 import jieba
 import json
 import numpy as np
@@ -152,6 +153,16 @@ def generate_summary(raw_comment):
     return summary
 
 
+def text_split(text, limited=True, sep=None, max_len=256):
+    if sep is not None:
+        texts = text.split(sep)
+    else:
+        texts = text_segmentate(text, 1, '\n.,;?;!')
+    if limited:
+        texts = texts[-max_len:]
+    return texts
+
+
 def main():
     """main function to set up the streamlit application visuals"""
     st.set_page_config(layout="wide")
@@ -185,8 +196,10 @@ def main():
         user_input = st.text_input(
             "Input comment here ")
         st.markdown("**Input comment: **")
-        st.text(user_input)
         raw_comment = user_input
+        # split into sentences
+        user_input = "\n".join(text_split(user_input, limited=False))
+        st.text(user_input)
 
     if multiselect_options[1] in display_options:
         row3_spacer1, row3_1, row3_spacer3 = st.beta_columns((.1, 3.2, .1))
