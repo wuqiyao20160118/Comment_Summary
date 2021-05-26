@@ -9,8 +9,9 @@ from bert4keras.snippets import AutoRegressiveDecoder
 from bert4keras.snippets import text_segmentate
 import jieba
 import json
+import utils
 import numpy as np
-
+import pandas as pd
 
 k_sparse = 10
 maxlen = 1024
@@ -21,6 +22,7 @@ seq2seq_config_json = data_seq2seq_json[:-5] + '_config.json'
 class AutoSummary(AutoRegressiveDecoder):
     """seq2seq decoder
     """
+
     def set_model(self, model):
         self.model = model
 
@@ -93,10 +95,15 @@ class SummaryModel(object):
         self.threshold = 0.2
 
     def __call__(self, raw_comment):
+        is_csv = False if isinstance(raw_comment, str) else True
         with self.graph.as_default():
             set_session(self.session)
-            summary = self.demo_predict(raw_comment)
-            return summary
+            if is_csv:
+                assert isinstance(raw_comment, pd.DataFrame)
+                return self.predict_from_csv(raw_comment)
+            else:
+                summary = self.demo_predict(raw_comment)
+                return summary
 
     def demo_predict(self, text, topk=3):
         # preprocessing
@@ -134,6 +141,60 @@ class SummaryModel(object):
 
         return summary
 
+    def predict_from_csv(self, comment_df, topk=3):
+        result = {
+            "Case Number": [],
+            "Summary": []
+        }
+
+        # regex filter set up
+        filter_delete_token, filter_replace, filter_delete_line = utils.compile_pattern()
+        # model set up
+        tokenizer, encoder = final_summary.load_base_model()
+        # abstractive model set up
+        token_dict, keep_tokens, compound_tokens = json.load(
+            open(seq2seq_config_json)
+        )
+        tk = Tokenizer(
+            token_dict,
+            do_lower_case=True,
+            pre_tokenize=lambda s: jieba.cut(s, HMM=False)
+        )
+        autoSummary = AutoSummary(
+            start_id=tk._token_start_id,
+            end_id=tk._token_end_id,
+            maxlen=maxlen // 2
+        )
+        autoSummary.set_tokenizer(tk)
+        autoSummary.set_model(self.seq_model)
+
+        comment_df.dropna(subset=["Plain Comment"], inplace=True)
+        comment_df["Plain Comment"] = comment_df["Plain Comment"].apply(lambda x: ' '.join(x.split('\n')))
+        # delete unwanted lines
+        comment_df["Plain Comment"] = comment_df["Plain Comment"].apply(
+            lambda x: utils.post_filtering(x, filter_delete_token, filter_replace, filter_delete_line))
+        comment_df = comment_df.groupby("Case Number")["Plain Comment"].apply(
+            lambda x: x.str.cat(sep=' ')).reset_index()
+        for _, row in comment_df.iterrows():
+            ips_no, comment = row['Case Number'], row["Plain Comment"]
+            comment = comment.encode("utf-8", "ignore")
+            comment = comment.decode("utf-8")
+
+            # sentence vectorization
+            comments = final_summary.convert.text_split(comment)
+            vecs = final_summary.vectorize.predict(comments, tokenizer, encoder)
+            # extraction
+            preds = self.extract_model.predict(vecs[None])[0, :, 0]
+            preds = np.where(preds > self.threshold)[0]
+            summary = ''.join([comments[i] for i in preds])
+            # abstractive summary generation
+            summary = autoSummary.generate(summary, topk=topk)
+            result["Case Number"].append(ips_no)
+            result["Summary"].append(summary)
+
+        result_df = pd.DataFrame(result)
+        return result_df
+
 
 def setup_sidebar(multiselect_options):
     """sets up the sidebar elements for streamlit """
@@ -142,10 +203,20 @@ def setup_sidebar(multiselect_options):
     display_options = st.sidebar.multiselect(
         'Select which you want to display',
         multiselect_options,
-        multiselect_options
+        ["single raw comments"]
     )
 
     return display_options
+
+
+@st.cache(allow_output_mutation=True)
+def get_csv(file):
+    df = pd.DataFrame()
+    has_data = False
+    if file is not None:
+        has_data = True
+        df = pd.read_csv(file)
+    return df, has_data
 
 
 def generate_summary(raw_comment):
@@ -166,7 +237,7 @@ def text_split(text, limited=True, sep=None, max_len=256):
 def main():
     """main function to set up the streamlit application visuals"""
     st.set_page_config(layout="wide")
-    multiselect_options = ["raw comments", "auto generated summary"]
+    multiselect_options = ["single raw comments", "batch conversion"]
     display_options = setup_sidebar(multiselect_options)
 
     # model initialization
@@ -201,13 +272,30 @@ def main():
         user_input = "\n".join(text_split(user_input, limited=False))
         st.text(user_input)
 
+    row3_spacer1, row3_1, row3_spacer2 = st.beta_columns((.1, 3.2, .1))
+    with row3_1:
+        st.markdown("**Summary: **")
+        if len(raw_comment) > 0:
+            summary = model(raw_comment)
+            st.text(summary)
+
+    result_df = pd.DataFrame()
+    has_data = False
     if multiselect_options[1] in display_options:
-        row3_spacer1, row3_1, row3_spacer3 = st.beta_columns((.1, 3.2, .1))
-        with row3_1:
-            st.markdown("**Summary: **")
-            if len(raw_comment) > 0:
-                summary = model(raw_comment)
-                st.text(summary)
+        row4_spacer1, row4_1, row4_spacer2 = st.beta_columns((.1, 3.2, .1))
+        with row4_1:
+            st.markdown("**Batch conversion** (support csv file now):")
+            # file size should less than 50M
+            file = st.file_uploader('Upload csv file', type=['csv'], key=None)
+            comment_df, has_data = get_csv(file)
+            if has_data and st.button("Begin summary"):
+                result_df = model(comment_df)
+            st.write(result_df)
+            result_df.to_csv('../server_file/result_summary.csv')
+        row5_spacer1, row5_1, row5_spacer2 = st.beta_columns((.1, 3.2, .1))
+        with row5_1:
+            if st.button('Download the result csv') and has_data:
+                st.write('http://localhost:8081/result_summary.csv')
 
 
 if __name__ == "__main__":

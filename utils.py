@@ -27,12 +27,12 @@ if not os.path.exists('weights'):
     os.mkdir('weights')
 
 # bert configuration
-# bert_config_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/config.json'
-# bert_checkpoint_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/bert_model.ckpt'
-# bert_dict_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/vocab.txt'
-bert_config_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/config.json'
-bert_checkpoint_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/bert_model.ckpt'
-bert_dict_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/vocab.txt'
+bert_config_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/config.json'
+bert_checkpoint_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/bert_model.ckpt'
+bert_dict_path = '/home/allen/data2/qiyaowu/data/bert/bert_uncased_L-12_H-768_A-12/vocab.txt'
+# bert_config_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/config.json'
+# bert_checkpoint_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/bert_model.ckpt'
+# bert_dict_path = 'C:\\Users\\qiyaowu\\Documents\\Python_Project\\bert_checkpoint/bert_uncased_L-12_H-768_A-12/vocab.txt'
 
 metric_keys = ['main', 'rouge-1', 'rouge-2', 'rouge-l']
 rouge = Rouge()
@@ -236,6 +236,7 @@ def compile_pattern():
         r'Error Msg\s*:',
         r'^\[.*\]',
         r'^\s*[:|?]',
+        r'^\s*([:|?]{2,}\d*\s*)+',
         r'^\s*\**'
     ]
     filter_replace = [
@@ -261,7 +262,8 @@ def compile_pattern():
         r'Memory config',
         r'Domain of issue relation',
         r'email trail for issue',
-        r'email consultation on CvP'
+        r'email consultation on CvP',
+        r'New Case Attachment uploaded'
     ]
     res_filter_delete_token, res_filter_replace, res_filter_delete_line = [], [], []
     for pattern in filter_delete_token:
@@ -274,6 +276,10 @@ def compile_pattern():
 
 
 def post_filtering(text, filter_delete_token=(), filter_replace=(), filter_delete_line=()):
+    text = text.encode("ISO-8859-1", "ignore")
+    text = text.decode("ISO-8859-1")
+    text = text.encode("utf-8", "ignore")
+    text = text.decode("utf-8")
     for pattern in filter_delete_token:
         text = re.sub(pattern, "", text)
     for pattern in filter_replace:

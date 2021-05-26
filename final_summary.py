@@ -8,6 +8,7 @@ from keras.models import Model
 from keras.layers import Dense
 import BERT_UniLM
 from utils import *
+import pandas as pd
 
 if len(sys.argv) == 1:
     fold = 0
@@ -105,34 +106,83 @@ def demo_predict(text, topk=3, streamlit=False):
     print(summary)
 
 
+def predict_from_csv(csv_fn, tokenizer, encoder, topk=3):
+    csv_path = os.path.join("./datasets", csv_fn)
+    comment_df = pd.read_csv(csv_path)
+    out_csv = os.path.join("./result", csv_fn)
+    result = {
+        "Case Number": [],
+        "Summary": []
+    }
+
+    # regex filter set up
+    filter_delete_token, filter_replace, filter_delete_line = compile_pattern()
+
+    comment_df.dropna(subset=["Plain Comment"], inplace=True)
+    comment_df["Plain Comment"] = comment_df["Plain Comment"].apply(lambda x: ' '.join(x.split('\n')))
+    # delete unwanted lines
+    comment_df["Plain Comment"] = comment_df["Plain Comment"].apply(
+        lambda x: post_filtering(x, filter_delete_token, filter_replace, filter_delete_line))
+    comment_df = comment_df.groupby("Case Number")["Plain Comment"].apply(lambda x: x.str.cat(sep=' ')).reset_index()
+    for _, row in comment_df.iterrows():
+        ips_no, comment = row['Case Number'], row["Plain Comment"]
+        comment = comment.encode("utf-8", "ignore")
+        comment = comment.decode("utf-8")
+
+        # sentence vectorization
+        comments = convert.text_split(comment)
+        vecs = vectorize.predict(comments, tokenizer, encoder)
+        # extraction
+        preds = extract.model.predict(vecs[None])[0, :, 0]
+        preds = np.where(preds > extract.threshold)[0]
+        summary = ''.join([comments[i] for i in preds])
+        # abstractive summary generation
+        summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
+        result["Case Number"].append(ips_no)
+        result["Summary"].append(summary)
+    result_df = pd.DataFrame(result)
+    result_df.to_csv(out_csv)
+    print("summary for {} has been generated.".format(csv_fn))
+
+
 if __name__ == '__main__':
+    # model set up
+    aTokenizer, aEncoder = load_base_model()
 
-    from tqdm import tqdm
-    import json
+    csv_list = []
+    file_list = os.listdir("./datasets")
+    for file in file_list:
+        if os.path.splitext(file)[-1] == '.csv':
+            csv_list.append(file)
+    for csv in csv_list:
+        predict_from_csv(csv, aTokenizer, aEncoder)
 
-    tokenizer = Tokenizer(bert_dict_path, do_lower_case=True)
-    encoder = build_transformer_model(
-        bert_config_path,
-        bert_checkpoint_path,
-    )
-    output = GlobalAveragePooling1D()(encoder.output)
-    encoder = Model(encoder.inputs, output)
-
-    data = extract.load_data(extract.data_extract_json)
-    valid_data = data_split(data, fold, num_folds, 'valid')
-    total_metrics = {k: 0.0 for k in metric_keys}
-    for d in tqdm(valid_data):
-        text = '\n'.join(d[0])
-        ips_num_str = d[-1]
-        summary = predict(text, tokenizer, encoder)
-        save_summary(summary, ips_num_str)
-        metrics = compute_metrics(summary, d[2])
-        for k, v in metrics.items():
-            total_metrics[k] += v
-
-    metrics = {k: str(v / len(valid_data)) for k, v in total_metrics.items()}
-    print(metrics)
-
-    with open("metrics.json", 'w') as metric_file:
-        json.dump(metrics, metric_file)
-    metric_file.close()
+    # from tqdm import tqdm
+    # import json
+    #
+    # tokenizer = Tokenizer(bert_dict_path, do_lower_case=True)
+    # encoder = build_transformer_model(
+    #     bert_config_path,
+    #     bert_checkpoint_path,
+    # )
+    # output = GlobalAveragePooling1D()(encoder.output)
+    # encoder = Model(encoder.inputs, output)
+    #
+    # data = extract.load_data(extract.data_extract_json)
+    # valid_data = data_split(data, fold, num_folds, 'valid')
+    # total_metrics = {k: 0.0 for k in metric_keys}
+    # for d in tqdm(valid_data):
+    #     text = '\n'.join(d[0])
+    #     ips_num_str = d[-1]
+    #     summary = predict(text, tokenizer, encoder)
+    #     save_summary(summary, ips_num_str)
+    #     metrics = compute_metrics(summary, d[2])
+    #     for k, v in metrics.items():
+    #         total_metrics[k] += v
+    #
+    # metrics = {k: str(v / len(valid_data)) for k, v in total_metrics.items()}
+    # print(metrics)
+    #
+    # with open("metrics.json", 'w') as metric_file:
+    #     json.dump(metrics, metric_file)
+    # metric_file.close()
