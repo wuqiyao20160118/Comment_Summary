@@ -119,16 +119,17 @@ class SummaryModel(object):
         vecs = final_summary.vectorize.predict(texts, tokenizer, encoder)
         # extraction
         preds = self.extract_model.predict(vecs[None])[0, :, 0]
-        preds = np.where(preds > self.threshold)[0]
-        summary = ''.join([texts[i] for i in preds])
+        predictions = np.where(preds > self.threshold)[0]
+        if predictions.shape[0] == 0:
+            predictions = np.array([np.argmax(preds)])
+        summary = ''.join([texts[i] for i in predictions])
         # abstractive summary generation
         token_dict, keep_tokens, compound_tokens = json.load(
             open(seq2seq_config_json)
         )
         tk = Tokenizer(
             token_dict,
-            do_lower_case=True,
-            pre_tokenize=lambda s: jieba.cut(s, HMM=False)
+            do_lower_case=True
         )
         autoSummary = AutoSummary(
             start_id=tk._token_start_id,
@@ -157,8 +158,7 @@ class SummaryModel(object):
         )
         tk = Tokenizer(
             token_dict,
-            do_lower_case=True,
-            pre_tokenize=lambda s: jieba.cut(s, HMM=False)
+            do_lower_case=True
         )
         autoSummary = AutoSummary(
             start_id=tk._token_start_id,
@@ -185,8 +185,10 @@ class SummaryModel(object):
             vecs = final_summary.vectorize.predict(comments, tokenizer, encoder)
             # extraction
             preds = self.extract_model.predict(vecs[None])[0, :, 0]
-            preds = np.where(preds > self.threshold)[0]
-            summary = ''.join([comments[i] for i in preds])
+            predictions = np.where(preds > self.threshold)[0]
+            if predictions.shape[0] == 0:
+                predictions = np.array([np.argmax(preds)])
+            summary = ''.join([comments[i] for i in predictions])
             # abstractive summary generation
             summary = autoSummary.generate(summary, topk=topk)
             result["Case Number"].append(ips_no)
@@ -290,8 +292,8 @@ def main():
             comment_df, has_data = get_csv(file)
             if has_data and st.button("Begin summary"):
                 result_df = model(comment_df)
+                result_df.to_csv('../server_file/result_summary.csv')
             st.write(result_df)
-            result_df.to_csv('../server_file/result_summary.csv')
         row5_spacer1, row5_1, row5_spacer2 = st.beta_columns((.1, 3.2, .1))
         with row5_1:
             if st.button('Download the result csv') and has_data:

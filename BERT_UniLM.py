@@ -63,10 +63,14 @@ else:
     json.dump([token_dict, keep_tokens, compound_tokens],
               open(seq2seq_config_json, 'w'))
 
+# tokenizer = Tokenizer(
+#     token_dict,
+#     do_lower_case=True,
+#     pre_tokenize=lambda s: jieba.cut(s, HMM=False)
+# )
 tokenizer = Tokenizer(
     token_dict,
-    do_lower_case=True,
-    pre_tokenize=lambda s: jieba.cut(s, HMM=False)
+    do_lower_case=True
 )
 
 

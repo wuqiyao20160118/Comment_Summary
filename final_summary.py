@@ -46,8 +46,10 @@ def predict(text, tokenizer, encoder, topk=3):
     vecs = vectorize.predict(texts, tokenizer, encoder)
     # extraction
     preds = extract.model.predict(vecs[None])[0, :, 0]
-    preds = np.where(preds > extract.threshold)[0]
-    summary = ''.join([texts[i] for i in preds])
+    predictions = np.where(preds > extract.threshold)[0]
+    if predictions.shape[0] == 0:
+        predictions = np.array([np.argmax(preds)])
+    summary = ''.join([texts[i] for i in predictions])
     # abstractive summary generation
     summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
     # return final summary
@@ -97,8 +99,10 @@ def demo_predict(text, topk=3, streamlit=False):
     vecs = vectorize.predict(texts, tokenizer, encoder)
     # extraction
     preds = extract.model.predict(vecs[None])[0, :, 0]
-    preds = np.where(preds > extract.threshold)[0]
-    summary = ''.join([texts[i] for i in preds])
+    predictions = np.where(preds > extract.threshold)[0]
+    if predictions.shape[0] == 0:
+        predictions = np.array([np.argmax(preds)])
+    summary = ''.join([texts[i] for i in predictions])
     # abstractive summary generation
     summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
     if streamlit:
@@ -134,8 +138,10 @@ def predict_from_csv(csv_fn, tokenizer, encoder, topk=3):
         vecs = vectorize.predict(comments, tokenizer, encoder)
         # extraction
         preds = extract.model.predict(vecs[None])[0, :, 0]
-        preds = np.where(preds > extract.threshold)[0]
-        summary = ''.join([comments[i] for i in preds])
+        predictions = np.where(preds > extract.threshold)[0]
+        if predictions.shape[0] == 0:
+            predictions = np.array([np.argmax(preds)])
+        summary = ''.join([comments[i] for i in predictions])
         # abstractive summary generation
         summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
         result["Case Number"].append(ips_no)
