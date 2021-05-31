@@ -11,6 +11,7 @@ from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import CountVectorizer
 import lda
 import re
+import unicodedata
 
 
 sys.setrecursionlimit(1000000)
@@ -66,6 +67,19 @@ def data_split(data, fold, num_folds, mode):
         return np.array(D)
     else:
         return D
+
+
+def delete_nonascii(text):
+    normalize_list = [[unicodedata.normalize("NFKD", word) for word in ls] for ls in text]
+    normalize_list = [[word.encode('ascii', 'ignore').decode('utf-8') for word in ls] for ls in normalize_list]
+    result = ""
+    for word_list in normalize_list:
+        sent = ''.join(word_list)
+        result += sent
+    # delete extra spaces
+    pattern = re.compile(r'\s{2,}')
+    result = re.sub(pattern, ' ', result)
+    return result
 
 
 def data_split_generator_txt(filename, fold, num_folds, mode, target, total_step, batch_size=32):

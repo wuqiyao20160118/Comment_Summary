@@ -10,6 +10,7 @@ import BERT_UniLM
 from utils import *
 import pandas as pd
 
+
 if len(sys.argv) == 1:
     fold = 0
 else:
@@ -47,11 +48,12 @@ def predict(text, tokenizer, encoder, topk=3):
     # extraction
     preds = extract.model.predict(vecs[None])[0, :, 0]
     predictions = np.where(preds > extract.threshold)[0]
-    if predictions.shape[0] == 0:
-        predictions = np.array([np.argmax(preds)])
+    if predictions.shape[0] <= 2:
+        predictions = np.array(np.argsort(preds)[0:min(3, preds.shape[0])])
     summary = ''.join([texts[i] for i in predictions])
     # abstractive summary generation
     summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
+    summary = delete_nonascii(summary)
     # return final summary
     return summary
 
@@ -100,11 +102,12 @@ def demo_predict(text, topk=3, streamlit=False):
     # extraction
     preds = extract.model.predict(vecs[None])[0, :, 0]
     predictions = np.where(preds > extract.threshold)[0]
-    if predictions.shape[0] == 0:
-        predictions = np.array([np.argmax(preds)])
+    if predictions.shape[0] <= 2:
+        predictions = np.array(np.argsort(preds)[0:min(3, preds.shape[0])])
     summary = ''.join([texts[i] for i in predictions])
     # abstractive summary generation
     summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
+    summary = delete_nonascii(summary)
     if streamlit:
         return summary
     print(summary)
@@ -138,16 +141,19 @@ def predict_from_csv(csv_fn, tokenizer, encoder, topk=3):
         vecs = vectorize.predict(comments, tokenizer, encoder)
         # extraction
         preds = extract.model.predict(vecs[None])[0, :, 0]
+        # preserve at least three sentences
         predictions = np.where(preds > extract.threshold)[0]
-        if predictions.shape[0] == 0:
-            predictions = np.array([np.argmax(preds)])
+        if predictions.shape[0] <= 2:
+            predictions = np.array(np.argsort(preds)[0:min(3, preds.shape[0])])
+            # predictions = np.array([np.argmax(preds)])
         summary = ''.join([comments[i] for i in predictions])
         # abstractive summary generation
         summary = BERT_UniLM.autoSummary.generate(summary, topk=topk)
+        summary = delete_nonascii(summary)
         result["Case Number"].append(ips_no)
         result["Summary"].append(summary)
     result_df = pd.DataFrame(result)
-    result_df.to_csv(out_csv)
+    result_df.to_csv(out_csv, encoding='utf-8')
     print("summary for {} has been generated.".format(csv_fn))
 
 

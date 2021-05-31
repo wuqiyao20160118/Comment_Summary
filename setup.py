@@ -1,5 +1,14 @@
 #! -*- coding: utf-8 -*-
 
+"""
+Possible optimization strategy:
+Global abstractive summary + Local abstractive summary + Ensemble
+Local abstractive summary:
+- use extractive summary to filter out candidates, then summarize the corresponding comment as a whole
+- it does well if the accepted candidates are of high quality
+"""
+
+
 import streamlit as st
 import tensorflow as tf
 from keras.backend import set_session, get_session
@@ -12,6 +21,7 @@ import json
 import utils
 import numpy as np
 import pandas as pd
+
 
 k_sparse = 10
 maxlen = 1024
@@ -92,7 +102,7 @@ class SummaryModel(object):
         self.graph = tf.get_default_graph()
         self.session = get_session()
         self.extract_model, self.seq_model = final_summary.load_model()
-        self.threshold = 0.2
+        self.threshold = 0.2  # first phase extraction threshold hyper-parameter
 
     def __call__(self, raw_comment):
         is_csv = False if isinstance(raw_comment, str) else True
@@ -119,9 +129,10 @@ class SummaryModel(object):
         vecs = final_summary.vectorize.predict(texts, tokenizer, encoder)
         # extraction
         preds = self.extract_model.predict(vecs[None])[0, :, 0]
+        # preserve at least three sentences
         predictions = np.where(preds > self.threshold)[0]
-        if predictions.shape[0] == 0:
-            predictions = np.array([np.argmax(preds)])
+        if predictions.shape[0] <= 2:
+            predictions = np.array(np.argsort(preds)[0:min(3, preds.shape[0])])
         summary = ''.join([texts[i] for i in predictions])
         # abstractive summary generation
         token_dict, keep_tokens, compound_tokens = json.load(
@@ -139,12 +150,14 @@ class SummaryModel(object):
         autoSummary.set_tokenizer(tk)
         autoSummary.set_model(self.seq_model)
         summary = autoSummary.generate(summary, topk=topk)
+        summary = utils.delete_nonascii(summary)
 
         return summary
 
-    def predict_from_csv(self, comment_df, topk=3):
+    def predict_from_csv(self, comment_df, topk=3):  # topk is the hyper-parameter for beam search
         result = {
             "Case Number": [],
+            "Plain Comment": [],
             "Summary": []
         }
 
@@ -185,14 +198,19 @@ class SummaryModel(object):
             vecs = final_summary.vectorize.predict(comments, tokenizer, encoder)
             # extraction
             preds = self.extract_model.predict(vecs[None])[0, :, 0]
+            # preserve at least three sentences
             predictions = np.where(preds > self.threshold)[0]
-            if predictions.shape[0] == 0:
-                predictions = np.array([np.argmax(preds)])
+            if predictions.shape[0] <= 2:
+                predictions = np.array(np.argsort(preds)[0:min(3, preds.shape[0])])
             summary = ''.join([comments[i] for i in predictions])
             # abstractive summary generation
             summary = autoSummary.generate(summary, topk=topk)
+            summary = utils.delete_nonascii(summary)
+            row["Plain Comment"] = utils.delete_nonascii(row["Plain Comment"])
+
             result["Case Number"].append(ips_no)
             result["Summary"].append(summary)
+            result["Plain Comment"].append(row["Plain Comment"])
 
         result_df = pd.DataFrame(result)
         return result_df
@@ -287,12 +305,12 @@ def main():
         row4_spacer1, row4_1, row4_spacer2 = st.beta_columns((.1, 3.2, .1))
         with row4_1:
             st.markdown("**Batch conversion** (support csv file now):")
-            # file size should less than 50M
+            # file size should less than 200M
             file = st.file_uploader('Upload csv file', type=['csv'], key=None)
             comment_df, has_data = get_csv(file)
             if has_data and st.button("Begin summary"):
                 result_df = model(comment_df)
-                result_df.to_csv('../server_file/result_summary.csv')
+                result_df.to_csv('../server_file/result_summary.csv', encoding='utf-8')
             st.write(result_df)
         row5_spacer1, row5_1, row5_spacer2 = st.beta_columns((.1, 3.2, .1))
         with row5_1:
